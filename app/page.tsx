@@ -227,40 +227,45 @@ function GalleryScreen({
       {/* 사진 그리드 */}
       <div style={{
         flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch",
-        display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2,
-        padding: "0 2px", alignContent: "start",
+        padding: "0 2px 2px",
       }}>
-        {allPhotos.map((p) => {
-          const isSelected = selectedIds.includes(p.id);
-          const orderNum = isSelected ? selectedIds.indexOf(p.id) + 1 : -1;
-          const maxReached = count >= MAX_PHOTOS;
+        <div style={{
+          display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 2,
+        }}>
+          {allPhotos.map((p) => {
+            const isSelected = selectedIds.includes(p.id);
+            const orderNum = isSelected ? selectedIds.indexOf(p.id) + 1 : -1;
+            const maxReached = count >= MAX_PHOTOS;
 
-          return (
-            <div key={p.id} onClick={() => toggle(p.id)} style={{
-              aspectRatio: "1", position: "relative", cursor: "pointer",
-              border: isSelected ? "2.5px solid #1a1a1a" : "2.5px solid transparent",
-              transition: "border 0.15s", overflow: "hidden",
-            }}>
-              <img src={p.url} alt="" loading="lazy" style={{
-                width: "100%", height: "100%", objectFit: "cover", display: "block",
-                opacity: isSelected ? 0.85 : 1, transition: "opacity 0.15s",
-              }} />
-              {isSelected && (
-                <div style={{
-                  position: "absolute", top: 4, right: 4, width: 24, height: 24,
-                  background: "#1a1a1a", borderRadius: "50%",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  color: "#fff", fontSize: 11, fontWeight: 700,
-                }}>
-                  {orderNum}
-                </div>
-              )}
-              {!isSelected && maxReached && (
-                <div style={{ position: "absolute", inset: 0, background: "rgba(250,250,248,0.6)" }} />
-              )}
-            </div>
-          );
-        })}
+            return (
+              <div key={p.id} onClick={() => toggle(p.id)} style={{
+                position: "relative", cursor: "pointer",
+                paddingBottom: "100%", /* 정사각형 보장 */
+                border: isSelected ? "2.5px solid #1a1a1a" : "2.5px solid transparent",
+                transition: "border 0.15s", overflow: "hidden",
+              }}>
+                <img src={p.url} alt="" loading="lazy" style={{
+                  position: "absolute", top: 0, left: 0,
+                  width: "100%", height: "100%", objectFit: "cover", display: "block",
+                  opacity: isSelected ? 0.85 : 1, transition: "opacity 0.15s",
+                }} />
+                {isSelected && (
+                  <div style={{
+                    position: "absolute", top: 4, right: 4, width: 24, height: 24,
+                    background: "#1a1a1a", borderRadius: "50%",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    color: "#fff", fontSize: 11, fontWeight: 700, zIndex: 2,
+                  }}>
+                    {orderNum}
+                  </div>
+                )}
+                {!isSelected && maxReached && (
+                  <div style={{ position: "absolute", inset: 0, background: "rgba(250,250,248,0.6)", zIndex: 1 }} />
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <BottomButton
@@ -283,24 +288,26 @@ function ArrangeScreen({ allPhotos, selectedIds, onNext, onBack }: {
       <StatusBar />
       <NavHeader title="순서 정렬" left="이전" right={`${selectedIds.length}장`} onLeft={onBack} />
       <p style={{ padding: "0 20px", fontSize: 13, color: "#aaa", margin: "0 0 8px" }}>앨범에 들어갈 순서입니다</p>
-      <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", padding: "4px 20px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, alignContent: "start" }}>
-        {selectedIds.map((id, i) => {
-          const photo = photoMap.get(id);
-          return (
-            <div key={id} style={{ aspectRatio: "1", borderRadius: 10, position: "relative", overflow: "hidden" }}>
-              {photo ? (
-                <img src={photo.url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-              ) : (
-                <div style={{ width: "100%", height: "100%", background: "#ddd" }} />
-              )}
-              <span style={{
-                position: "absolute", bottom: 5, left: 5,
-                background: "rgba(0,0,0,0.55)", color: "#fff",
-                fontSize: 10, padding: "2px 7px", borderRadius: 5, fontWeight: 600,
-              }}>{i + 1}</span>
-            </div>
-          );
-        })}
+      <div style={{ flex: 1, overflow: "auto", WebkitOverflowScrolling: "touch", padding: "4px 20px 20px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+          {selectedIds.map((id, i) => {
+            const photo = photoMap.get(id);
+            return (
+              <div key={id} style={{ position: "relative", paddingBottom: "100%", borderRadius: 10, overflow: "hidden" }}>
+                {photo ? (
+                  <img src={photo.url} alt="" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+                ) : (
+                  <div style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", background: "#ddd" }} />
+                )}
+                <span style={{
+                  position: "absolute", bottom: 5, left: 5,
+                  background: "rgba(0,0,0,0.55)", color: "#fff",
+                  fontSize: 10, padding: "2px 7px", borderRadius: 5, fontWeight: 600, zIndex: 2,
+                }}>{i + 1}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
       <BottomButton label="다음" onClick={onNext} />
     </div>

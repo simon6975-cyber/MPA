@@ -125,7 +125,7 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
           나만의<br /><span style={{ fontWeight: 700 }}>포토앨범</span>을<br />만들어보세요
         </h1>
         <p style={{ color: "#999", fontSize: 15, marginTop: 16, lineHeight: 1.7 }}>
-          스마트폰 사진 최대 100장으로<br />하드커버 양장 앨범을 제작합니다
+          사진 보관함에서 사진을 선택하면<br />최대 100장까지 자동으로 앨범에 담깁니다
         </p>
         <div style={{ display: "flex", gap: 8, marginTop: 32, overflow: "auto", paddingBottom: 4 }}>
           {COLORS.map((c) => (
@@ -134,8 +134,11 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
         </div>
         <p style={{ color: "#ccc", fontSize: 11, marginTop: 8 }}>6가지 컬러 커버</p>
         <button onClick={onStart} style={{ width: "100%", marginTop: 36, padding: "17px 0", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 14, fontSize: 17, fontWeight: 600, cursor: "pointer" }}>
-          새 앨범 만들기
+          사진 보관함에서 선택하기
         </button>
+        <p style={{ fontSize: 12, color: "#bbb", marginTop: 10, textAlign: "center", lineHeight: 1.5 }}>
+          사진을 많이 선택할수록 좋아요 (최대 100장)<br />선택한 사진은 이후 화면에서 조정할 수 있어요
+        </p>
         <div style={{ marginTop: 20, padding: 16, background: "#f0eeeb", borderRadius: 12 }}>
           <p style={{ fontSize: 12, color: "#999", margin: 0 }}>최근 주문</p>
           <p style={{ fontSize: 15, color: "#444", margin: "6px 0 0", fontWeight: 500 }}>2026 봄 여행 앨범</p>
@@ -187,6 +190,18 @@ function GalleryScreen({
     <div style={{ height: "100%", background: "#fafaf8", display: "flex", flexDirection: "column" }}>
       <StatusBar />
       <NavHeader title="사진 선택" left="취소" right={`${count}/${MAX_PHOTOS}`} onLeft={onBack} />
+
+      {/* 상태 안내 */}
+      <div style={{ padding: "0 20px 6px", flexShrink: 0 }}>
+        <div style={{
+          background: count > 0 ? "#E8F5E9" : "#FFF3E0", borderRadius: 10, padding: "10px 14px",
+          fontSize: 13, color: count > 0 ? "#2E7D32" : "#E65100", lineHeight: 1.5,
+        }}>
+          {count > 0
+            ? `${allPhotos.length}장 중 ${count}장이 앨범에 포함됩니다. 탭하여 추가/제거하세요.`
+            : "사진을 탭하여 앨범에 포함할 사진을 선택하세요."}
+        </div>
+      </div>
 
       {/* 도구 바 */}
       <div style={{ padding: "0 20px 10px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
@@ -510,7 +525,7 @@ export default function Page() {
     if (files.length === 0) return;
 
     setLoading(true);
-    setLoadingMsg("사진을 불러오는 중...");
+    setLoadingMsg(`${files.length}장의 사진을 불러오는 중...`);
 
     setTimeout(() => {
       const photos = processFiles(files);

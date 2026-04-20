@@ -1,0 +1,58 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 주문 컬렉션
+    match /orders/{orderId} {
+      // 읽기: 본인 주문만 읽기 가능 (관리자는 나중에 추가)
+      // ⚠ 현재는 관리자 인증이 비밀번호 기반(클라이언트 전용)이라
+      //    관리자가 Firestore에서 인증되지 않음 → 임시로 읽기 전체 허용
+      //    실제 운영 전에 반드시 Firebase Auth의 custom claims로 admin 역할 체크 추가
+      allow read: if true;
+
+      // 쓰기(생성): 로그인한 사용자만, 자기 UID로 생성 가능
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+
+      // 업데이트: 본인 주문이거나 (관리자 역할은 나중에)
+      // 현재는 관리자가 상태 변경할 수 있도록 임시 허용
+      allow update: if true;
+
+      // 삭제: 금지
+      allow delete: if false;
+    }
+
+    // 상품 설정 (가격/티어/커버 색상/배송비)
+    // 고객 앱은 읽기 전용, 관리자만 쓰기 가능
+    // ⚠ 현재 관리자 인증이 클라이언트 비밀번호 방식이라 임시로 쓰기 허용
+    //    실제 운영 전 반드시 Firebase Auth admin claim 체크로 교체 필요
+    match /settings/{settingId} {
+      allow read: if true;
+      allow write: if true; // TODO: admin claim 체크로 교체
+    }
+
+    // 기본: 다른 모든 경로 접근 금지
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+/*
+  ▼ 개선 로드맵 ▼
+
+  1. 관리자 역할 추가 (Firebase Auth custom claims):
+     - Firebase Admin SDK로 특정 UID에 { admin: true } claim 부여
+     - 규칙에서 request.auth.token.admin == true 로 체크
+
+  2. 주문 읽기 제한:
+     allow read: if request.auth != null
+                 && (request.auth.uid == resource.data.userId
+                     || request.auth.token.admin == true);
+
+  3. 업데이트 필드 제한:
+     - 고객은 자기 주문 취소만 가능
+     - 관리자만 status 변경 가능
+     - pdf 필드는 Cloud Functions만 쓸 수 있도록
+*/

@@ -1,0 +1,30 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // 주문별 사진 경로: orders/{userId}/{orderId}/photos/{filename}
+    match /orders/{userId}/{orderId}/photos/{filename} {
+      // 읽기: 관리자가 제작용으로 다운로드해야 하므로 인증된 사용자 허용
+      //       (현재 관리자 역할 체크 전이라 임시로 auth만 확인)
+      allow read: if request.auth != null;
+
+      // 쓰기: 본인만 자기 경로에 업로드 가능
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 20 * 1024 * 1024  // 20MB 제한
+                   && request.resource.contentType.matches('image/.*');
+    }
+
+    // PDF 출력 파일 (Cloud Functions가 생성)
+    match /orders/{userId}/{orderId}/print.pdf {
+      allow read: if request.auth != null;
+      allow write: if false;  // Cloud Functions만 쓸 수 있음 (Admin SDK 사용)
+    }
+
+    // 기타 경로 금지
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

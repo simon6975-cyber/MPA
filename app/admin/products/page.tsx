@@ -3,8 +3,8 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { subscribeToProductSettings, saveProductSettings, resetProductSettings } from "../../_lib/productService";
 import { isFirebaseConfigured } from "../../_lib/firebase";
-import type { ProductSettings, ProductTier, CoverColor, ProductTierKey } from "../../_lib/types";
-import { DEFAULT_PRODUCT_SETTINGS } from "../../_lib/types";
+import type { ProductSettings, CoverColor, Product } from "../../_lib/types";
+import { DEFAULT_PRODUCT_SETTINGS, calculatePrice } from "../../_lib/types";
 
 /* ─── 유틸 ─── */
 
@@ -23,17 +23,14 @@ function formatDateTime(iso: string): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
 }
 
-/** HEX 유효성 (#ABC / #AABBCC) */
 function isValidHex(v: string): boolean {
   return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(v.trim());
 }
 
-/** 간단한 딥카피 */
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v)) as T;
 }
 
-/** 두 설정이 동일한지 비교 (updatedAt, updatedBy 제외) */
 function isEqualSettings(a: ProductSettings, b: ProductSettings): boolean {
   const strip = (s: ProductSettings) => {
     const { updatedAt, updatedBy, ...rest } = s;
@@ -52,7 +49,6 @@ export default function AdminProductsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: "ok" | "err"; msg: string } | null>(null);
 
-  /* 실시간 구독 */
   useEffect(() => {
     if (!isFirebaseConfigured()) {
       setError("Firebase가 설정되지 않았습니다. Vercel 환경 변수를 확인하세요.");
@@ -61,23 +57,22 @@ export default function AdminProductsPage() {
     }
     const unsub = subscribeToProductSettings(
       (s) => {
-        setServerSettings(s);
-        // 서버 값이 바뀌어도, 사용자가 아직 편집 중이라면 덮어쓰지 않음
-        // 최초 로딩이거나 편집한 내용이 서버와 동일할 때만 동기화
-        setDraft(prev => {
-          if (!serverSettings) return clone(s); // 최초 로딩
-          if (isEqualSettings(prev, serverSettings)) return clone(s); // 편집 안 한 상태
-          return prev; // 편집 중이면 유지
+        setServerSettings(prev => {
+          // 최초 로딩이거나, 사용자가 편집하지 않은 상태일 때만 draft도 함께 동기화
+          setDraft(d => {
+            if (prev === null) return clone(s);
+            if (isEqualSettings(d, prev)) return clone(s);
+            return d;
+          });
+          return s;
         });
         setLoading(false);
       },
       (err) => { setError(err.message); setLoading(false); }
     );
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* 자동 사라지는 토스트 */
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 3000);
@@ -93,24 +88,17 @@ export default function AdminProductsPage() {
   const validation = useMemo(() => {
     const errs: string[] = [];
 
-    // 티어: 활성 티어는 최소 1개, 장수 오름차순 권장, 가격 양수
-    const activeTiers = draft.tiers.filter(t => t.enabled);
-    if (activeTiers.length === 0) errs.push("최소 1개 이상의 활성 상품이 필요합니다.");
-    draft.tiers.forEach(t => {
-      if (!t.name.trim()) errs.push(`[${t.key}] 상품명이 비어있습니다.`);
-      if (t.maxPhotos < 1 || t.maxPhotos > 500) errs.push(`[${t.name || t.key}] 장수는 1~500 사이여야 합니다.`);
-      if (t.price < 0) errs.push(`[${t.name || t.key}] 가격은 0 이상이어야 합니다.`);
-    });
-    // 장수 겹침 경고 (mini.max < standard.max < premium.max 권장)
-    const ordered = [...draft.tiers].sort((a, b) => a.maxPhotos - b.maxPhotos);
-    for (let i = 1; i < ordered.length; i++) {
-      if (ordered[i].maxPhotos <= ordered[i - 1].maxPhotos) {
-        errs.push(`장수 상한이 겹칩니다: "${ordered[i - 1].name}" (${ordered[i - 1].maxPhotos}장) vs "${ordered[i].name}" (${ordered[i].maxPhotos}장)`);
-        break;
-      }
+    // 상품
+    if (!draft.product.name.trim()) errs.push("상품명이 비어있습니다.");
+    if (draft.product.maxPhotos < 1 || draft.product.maxPhotos > 500) {
+      errs.push("최대 장수는 1~500 사이여야 합니다.");
+    }
+    if (draft.product.basePrice < 0) errs.push("판매가는 0 이상이어야 합니다.");
+    if (draft.product.vatRate < 0 || draft.product.vatRate > 1) {
+      errs.push("부가세율은 0~100% 사이여야 합니다.");
     }
 
-    // 커버 색상: 활성 최소 1개, HEX 유효, 이름 필수
+    // 커버 색상
     const activeColors = draft.colors.filter(c => c.enabled);
     if (activeColors.length === 0) errs.push("최소 1개 이상의 활성 커버 색상이 필요합니다.");
     draft.colors.forEach(c => {
@@ -118,11 +106,10 @@ export default function AdminProductsPage() {
       if (!isValidHex(c.hex)) errs.push(`[${c.name || c.id}] 커버 색상 HEX가 올바르지 않습니다.`);
       if (!isValidHex(c.light)) errs.push(`[${c.name || c.id}] 밝은 배경 HEX가 올바르지 않습니다.`);
     });
-    // id 중복
     const ids = draft.colors.map(c => c.id);
     if (new Set(ids).size !== ids.length) errs.push("커버 색상 ID에 중복이 있습니다.");
 
-    // 배송/선물 포장
+    // 배송/포장
     if (draft.shippingFee < 0) errs.push("배송비는 0 이상이어야 합니다.");
     if (draft.freeShippingThreshold < 0) errs.push("무료배송 기준 금액은 0 이상이어야 합니다.");
     if (draft.giftWrapFee < 0) errs.push("선물 포장 추가 금액은 0 이상이어야 합니다.");
@@ -130,15 +117,11 @@ export default function AdminProductsPage() {
     return errs;
   }, [draft]);
 
-  /* 편집 핸들러 — 티어 */
-  const updateTier = (key: ProductTierKey, patch: Partial<ProductTier>) => {
-    setDraft(prev => ({
-      ...prev,
-      tiers: prev.tiers.map(t => t.key === key ? { ...t, ...patch } : t),
-    }));
+  /* 편집 핸들러 */
+  const updateProduct = (patch: Partial<Product>) => {
+    setDraft(prev => ({ ...prev, product: { ...prev.product, ...patch } }));
   };
 
-  /* 편집 핸들러 — 커버 */
   const updateColor = (id: string, patch: Partial<CoverColor>) => {
     setDraft(prev => ({
       ...prev,
@@ -164,10 +147,7 @@ export default function AdminProductsPage() {
       return;
     }
     if (!confirm("이 커버 색상을 삭제할까요?\n이미 해당 색상으로 주문된 기존 주문 데이터는 그대로 보존됩니다.")) return;
-    setDraft(prev => ({
-      ...prev,
-      colors: prev.colors.filter(c => c.id !== id),
-    }));
+    setDraft(prev => ({ ...prev, colors: prev.colors.filter(c => c.id !== id) }));
   };
 
   const moveColor = (id: string, dir: -1 | 1) => {
@@ -182,7 +162,7 @@ export default function AdminProductsPage() {
     });
   };
 
-  /* 저장 / 취소 / 리셋 */
+  /* 저장/취소/리셋 */
   const handleSave = async () => {
     if (validation.length > 0) {
       setToast({ type: "err", msg: `저장할 수 없습니다: ${validation[0]}` });
@@ -240,6 +220,8 @@ export default function AdminProductsPage() {
   }
 
   const sortedColorsForDisplay = [...draft.colors].sort((a, b) => a.order - b.order);
+  const priceSample = calculatePrice(draft);
+  const priceSampleWithGift = calculatePrice(draft, { giftWrap: true });
 
   return (
     <div style={{ paddingBottom: 80 }}>
@@ -248,7 +230,7 @@ export default function AdminProductsPage() {
         <div>
           <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: "#1a1a1a" }}>상품 관리</h1>
           <p style={{ margin: "6px 0 0", fontSize: 13, color: "#888" }}>
-            가격·장수·커버 색상·배송비를 변경하면 고객 앱에 즉시 반영됩니다
+            단일 상품 · 최대 {draft.product.maxPhotos}장 · {formatPrice(draft.product.basePrice)} (부가세 별도)
             <br />
             <span style={{ fontSize: 11, color: "#aaa" }}>
               마지막 저장: {serverSettings ? formatDateTime(serverSettings.updatedAt) : "-"}
@@ -319,23 +301,75 @@ export default function AdminProductsPage() {
         </div>
       )}
 
-      {/* ═══ 섹션 1: 상품 티어 ═══ */}
+      {/* ═══ 섹션 1: 상품 기본 정보 ═══ */}
       <section style={sectionStyle}>
         <div style={sectionHeaderStyle}>
           <div>
-            <h2 style={sectionTitleStyle}>상품 티어 · 장수 · 가격</h2>
-            <p style={sectionDescStyle}>사진 장수에 따라 자동으로 배정되는 3개 티어입니다. 장수 상한은 미니 &lt; 스탠다드 &lt; 프리미엄 순서가 되어야 합니다.</p>
+            <h2 style={sectionTitleStyle}>상품 정보</h2>
+            <p style={sectionDescStyle}>
+              MPA는 단일 상품입니다. 사진 장수에 관계없이 고정 가격이며, 선택한 장수가 최대 장수 이하이면 모두 같은 가격으로 판매됩니다.
+            </p>
           </div>
+          <ToggleSwitch
+            checked={draft.product.enabled}
+            onChange={(v) => updateProduct({ enabled: v })}
+            label={draft.product.enabled ? "판매중" : "판매중지"}
+          />
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
-          {draft.tiers.map(tier => (
-            <TierCard
-              key={tier.key}
-              tier={tier}
-              onChange={(patch) => updateTier(tier.key, patch)}
-            />
-          ))}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+          <TextField
+            label="상품명"
+            value={draft.product.name}
+            onChange={(v) => updateProduct({ name: v })}
+            placeholder="예: 모바일 포토앨범"
+          />
+          <TextField
+            label="한 줄 설명 (선택)"
+            value={draft.product.description ?? ""}
+            onChange={(v) => updateProduct({ description: v })}
+            placeholder="예: 최대 100장 · 하드커버 양장"
+          />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          <NumberField
+            label="최대 수록 장수"
+            value={draft.product.maxPhotos}
+            onChange={(v) => updateProduct({ maxPhotos: v })}
+            suffix="장"
+            hint={`고객은 1~${draft.product.maxPhotos}장까지 선택 가능`}
+          />
+          <NumberField
+            label="판매가 (부가세 별도)"
+            value={draft.product.basePrice}
+            onChange={(v) => updateProduct({ basePrice: v })}
+            suffix="원"
+            hint={`사진 장수 무관 고정가`}
+          />
+          <NumberField
+            label="부가세율"
+            value={Math.round(draft.product.vatRate * 100)}
+            onChange={(v) => updateProduct({ vatRate: Math.max(0, Math.min(100, v)) / 100 })}
+            suffix="%"
+            hint={`${formatPrice(Math.round(draft.product.basePrice * draft.product.vatRate))} 부가세`}
+          />
+        </div>
+
+        {/* 가격 요약 */}
+        <div style={{
+          marginTop: 14, padding: "12px 14px",
+          background: "#f5f6f8", borderRadius: 8,
+          fontSize: 12, lineHeight: 1.8,
+        }}>
+          <div style={{ fontWeight: 600, color: "#1a1a1a", marginBottom: 6 }}>💰 고객이 보게 될 가격 (미리보기)</div>
+          <PriceRow label="상품가 (부가세 별도)" value={formatPrice(priceSample.basePrice)} />
+          <PriceRow label={`부가세 (${Math.round(draft.product.vatRate * 100)}%)`} value={formatPrice(priceSample.vat)} />
+          <PriceRow label="상품 합계 (부가세 포함)" value={formatPrice(priceSample.productTotal)} bold />
+          <PriceRow label="배송비" value={priceSample.shippingFee === 0 ? "무료" : formatPrice(priceSample.shippingFee)} />
+          <div style={{ borderTop: "1px dashed #ccc", margin: "6px 0" }} />
+          <PriceRow label="최종 결제액" value={formatPrice(priceSample.grandTotal)} bold accent />
+          <PriceRow label="(선물 포장 추가 시)" value={formatPrice(priceSampleWithGift.grandTotal)} muted />
         </div>
       </section>
 
@@ -370,7 +404,7 @@ export default function AdminProductsPage() {
         <div style={sectionHeaderStyle}>
           <div>
             <h2 style={sectionTitleStyle}>배송 · 선물 포장</h2>
-            <p style={sectionDescStyle}>기본 배송비와 선물 포장 옵션 추가 금액을 설정합니다.</p>
+            <p style={sectionDescStyle}>기본 배송비와 선물 포장 옵션 추가 금액을 설정합니다. 배송비는 부가세 포함 금액으로 입력하세요.</p>
           </div>
         </div>
 
@@ -379,24 +413,27 @@ export default function AdminProductsPage() {
             label="배송비 (원)"
             value={draft.shippingFee}
             onChange={(v) => setDraft(prev => ({ ...prev, shippingFee: v }))}
+            suffix="원"
             hint={draft.shippingFee === 0 ? "0원 = 무료배송" : `고객 결제 시 +${formatPrice(draft.shippingFee)}`}
           />
           <NumberField
             label="무료배송 기준 금액 (원)"
             value={draft.freeShippingThreshold}
             onChange={(v) => setDraft(prev => ({ ...prev, freeShippingThreshold: v }))}
+            suffix="원"
             hint={draft.freeShippingThreshold === 0 ? "비활성 (항상 배송비 적용)" : `${formatPrice(draft.freeShippingThreshold)} 이상 구매 시 무료`}
           />
           <NumberField
             label="선물 포장 추가 금액 (원)"
             value={draft.giftWrapFee}
             onChange={(v) => setDraft(prev => ({ ...prev, giftWrapFee: v }))}
+            suffix="원"
             hint={draft.giftWrapFee === 0 ? "무료 제공" : `선물 포장 선택 시 +${formatPrice(draft.giftWrapFee)}`}
           />
         </div>
       </section>
 
-      {/* 하단 고정 저장 바 (모바일/긴 페이지용) */}
+      {/* 하단 고정 저장 바 */}
       {isDirty && (
         <div style={{
           position: "sticky", bottom: 16, marginTop: 24,
@@ -432,68 +469,18 @@ export default function AdminProductsPage() {
 
 /* ═══════════ 하위 컴포넌트 ═══════════ */
 
-function TierCard({ tier, onChange }: {
-  tier: ProductTier;
-  onChange: (patch: Partial<ProductTier>) => void;
+function PriceRow({ label, value, bold, accent, muted }: {
+  label: string; value: string; bold?: boolean; accent?: boolean; muted?: boolean;
 }) {
-  const tierColor =
-    tier.key === "mini"     ? "#1565C0" :
-    tier.key === "standard" ? "#E65100" :
-                              "#6A1B9A";
-
   return (
     <div style={{
-      background: "#fff", border: `2px solid ${tier.enabled ? tierColor : "#e8eaed"}`,
-      borderRadius: 10, padding: 16,
-      opacity: tier.enabled ? 1 : 0.55,
-      transition: "all 0.15s",
+      display: "flex", justifyContent: "space-between",
+      color: muted ? "#aaa" : accent ? "#1a1a1a" : "#555",
+      fontWeight: bold ? 700 : 400,
+      fontSize: accent ? 13 : 12,
     }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-        <span style={{
-          display: "inline-block", padding: "2px 8px",
-          background: tier.enabled ? tierColor : "#bbb",
-          color: "#fff", borderRadius: 4,
-          fontSize: 10, fontWeight: 700, letterSpacing: 0.5, textTransform: "uppercase",
-        }}>
-          {tier.key}
-        </span>
-        <ToggleSwitch
-          checked={tier.enabled}
-          onChange={(v) => onChange({ enabled: v })}
-          label={tier.enabled ? "판매중" : "숨김"}
-        />
-      </div>
-
-      <TextField
-        label="상품명"
-        value={tier.name}
-        onChange={(v) => onChange({ name: v })}
-        placeholder="예: 미니앨범"
-      />
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 10 }}>
-        <NumberField
-          label="최대 장수"
-          value={tier.maxPhotos}
-          onChange={(v) => onChange({ maxPhotos: v })}
-          suffix="장"
-          compact
-        />
-        <NumberField
-          label="판매가"
-          value={tier.price}
-          onChange={(v) => onChange({ price: v })}
-          suffix="원"
-          compact
-        />
-      </div>
-      <div style={{ marginTop: 10 }}>
-        <TextField
-          label="설명 (선택)"
-          value={tier.description ?? ""}
-          onChange={(v) => onChange({ description: v })}
-          placeholder="한 줄 설명"
-        />
-      </div>
+      <span>{label}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>{value}</span>
     </div>
   );
 }
@@ -515,7 +502,6 @@ function ColorCard({ color, canMoveUp, canMoveDown, onChange, onRemove, onMoveUp
       opacity: color.enabled ? 1 : 0.55,
       transition: "all 0.15s",
     }}>
-      {/* 미리보기 + 컨트롤 */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <div style={{
           width: 48, height: 64,
@@ -554,13 +540,11 @@ function ColorCard({ color, canMoveUp, canMoveDown, onChange, onRemove, onMoveUp
         />
       </div>
 
-      {/* HEX 입력 */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
         <HexField label="커버 HEX" value={color.hex} onChange={(v) => onChange({ hex: v })} />
         <HexField label="밝은 배경 HEX" value={color.light} onChange={(v) => onChange({ light: v })} />
       </div>
 
-      {/* 하단 버튼 */}
       <div style={{ display: "flex", gap: 6, marginTop: 12, justifyContent: "space-between" }}>
         <div style={{ display: "flex", gap: 4 }}>
           <button onClick={onMoveUp} disabled={!canMoveUp} title="위로" style={iconBtnStyle(canMoveUp)}>↑</button>
@@ -577,8 +561,6 @@ function ColorCard({ color, canMoveUp, canMoveDown, onChange, onRemove, onMoveUp
     </div>
   );
 }
-
-/* ─── 공통 입력 위젯 ─── */
 
 function TextField({ label, value, onChange, placeholder }: {
   label: string;
@@ -599,13 +581,12 @@ function TextField({ label, value, onChange, placeholder }: {
   );
 }
 
-function NumberField({ label, value, onChange, suffix, hint, compact }: {
+function NumberField({ label, value, onChange, suffix, hint }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
   suffix?: string;
   hint?: string;
-  compact?: boolean;
 }) {
   return (
     <label style={{ display: "block" }}>
@@ -619,7 +600,7 @@ function NumberField({ label, value, onChange, suffix, hint, compact }: {
             onChange(Number.isFinite(n) ? n : 0);
           }}
           min={0}
-          style={{ ...inputStyle, paddingRight: suffix ? 32 : 10, fontVariantNumeric: "tabular-nums" }}
+          style={{ ...inputStyle, paddingRight: suffix ? 36 : 10, fontVariantNumeric: "tabular-nums" }}
         />
         {suffix && (
           <span style={{
@@ -630,7 +611,7 @@ function NumberField({ label, value, onChange, suffix, hint, compact }: {
           </span>
         )}
       </div>
-      {hint && !compact && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#aaa" }}>{hint}</p>}
+      {hint && <p style={{ margin: "4px 0 0", fontSize: 10, color: "#aaa" }}>{hint}</p>}
     </label>
   );
 }

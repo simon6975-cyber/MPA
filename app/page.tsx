@@ -19,10 +19,11 @@ interface PhotoItem {
 const MAX_PHOTOS = 100;
 
 /**
- * ▼ 상품 설정 (가격·커버 색상)은 Firestore `settings/product`에서 실시간으로 가져옵니다.
- *   관리자 화면(/admin/products)에서 저장하면 고객 앱에도 즉시 반영됩니다.
- *   Firestore 연결 전이거나 로딩 중일 때는 DEFAULT_PRODUCT_SETTINGS 값이 사용됩니다.
- *   아래 let 변수들은 subscribeToProductSettings() 콜백에서 갱신됩니다.
+ * ▼ 상품 설정 (가격·커버 색상·부가세·배송비)은 Firestore `settings/product`에서
+ *   실시간으로 가져옵니다. 관리자 화면(/admin/products)에서 저장하면 고객 앱에도
+ *   즉시 반영됩니다. Firestore 연결 전이거나 로딩 중엔 DEFAULT_PRODUCT_SETTINGS 값 사용.
+ *
+ * v1.11부터 단일 상품 구조 (최대 100장, 10,000원, 부가세 별도).
  */
 let COLORS: { name: string; hex: string; light: string }[] =
   DEFAULT_PRODUCT_SETTINGS.colors
@@ -30,29 +31,48 @@ let COLORS: { name: string; hex: string; light: string }[] =
     .sort((a, b) => a.order - b.order)
     .map(c => ({ name: c.name, hex: c.hex, light: c.light }));
 
-let TIERS: { key: "mini" | "standard" | "premium"; name: string; max: number; price: string }[] =
-  DEFAULT_PRODUCT_SETTINGS.tiers
-    .filter(t => t.enabled)
-    .sort((a, b) => a.maxPhotos - b.maxPhotos)
-    .map(t => ({ key: t.key, name: t.name, max: t.maxPhotos, price: t.price.toLocaleString() }));
+/**
+ * 현재 상품 정보를 고객 앱이 필요로 하는 형태로 가공해 반환.
+ * 기존 `tier` 인터페이스를 유지해 UI 코드 변경을 최소화함.
+ *   - name: 상품명
+ *   - max: 최대 수록 장수
+ *   - price: "12,100" (부가세 포함, 콤마 포함 문자열)
+ *   - priceNumber: 결제 금액 (원 단위 정수, 부가세 포함, 배송비 별도)
+ *   - basePrice: 부가세 별도 금액
+ *   - vat: 부가세
+ */
+let CURRENT_SETTINGS: ProductSettings = { ...DEFAULT_PRODUCT_SETTINGS };
 
-/** 전체 티어 목록(활성만) 중 장수에 맞는 티어 반환 */
-function getTier(n: number) {
-  for (const t of TIERS) if (n <= t.max) return t;
-  return TIERS[TIERS.length - 1];
+function getProduct() {
+  const p = CURRENT_SETTINGS.product;
+  const vat = Math.round(p.basePrice * p.vatRate);
+  const total = p.basePrice + vat;
+  return {
+    name: p.name,
+    description: p.description ?? "",
+    max: p.maxPhotos,
+    basePrice: p.basePrice,
+    vat,
+    priceNumber: total,               // 부가세 포함 금액 (배송비 제외)
+    price: total.toLocaleString(),    // 표시용 콤마 문자열
+    enabled: p.enabled,
+    vatRate: p.vatRate,
+  };
+}
+
+/** 장수와 무관하게 단일 상품을 반환 (기존 getTier 자리). */
+function getTier(_n: number) {
+  return getProduct();
 }
 
 /** Firestore 설정을 모듈 변수에 반영하고, 구독자에게 변경을 알림 */
 const _productListeners = new Set<() => void>();
 function applyProductSettings(s: ProductSettings) {
+  CURRENT_SETTINGS = s;
   COLORS = s.colors
     .filter(c => c.enabled)
     .sort((a, b) => a.order - b.order)
     .map(c => ({ name: c.name, hex: c.hex, light: c.light }));
-  TIERS = s.tiers
-    .filter(t => t.enabled)
-    .sort((a, b) => a.maxPhotos - b.maxPhotos)
-    .map(t => ({ key: t.key, name: t.name, max: t.maxPhotos, price: t.price.toLocaleString() }));
   _productListeners.forEach(l => l());
 }
 
@@ -77,7 +97,7 @@ function useProductSettingsSync() {
   }, []);
 }
 
-const APP_VERSION = "v1.10 · Firebase";
+const APP_VERSION = "v1.11 · Firebase";
 
 /* ─── 사용자 세션 (간편 로그인) ─── */
 interface UserSession {
@@ -1068,7 +1088,7 @@ function PaymentScreen({
         })
         .filter((p): p is { file: File; order: number } => p !== null);
 
-      const tierKey: "mini" | "standard" | "premium" = tier.key;
+      const tierKey: "mini" | "standard" | "premium" = "standard"; // v1.11부터 단일 상품 → 항상 "standard"
 
       setProcessing("uploading");
 
@@ -1094,7 +1114,7 @@ function PaymentScreen({
             message: orderInfo.message,
           },
           payment: {
-            amount: parseInt(tier.price.replace(/,/g, ""), 10),
+            amount: tier.priceNumber, // 부가세 포함 (배송비는 현재 고객 화면에 표시만 하고 결제엔 포함 X)
             method: method === 0 ? "applepay" : "card",
           },
         },

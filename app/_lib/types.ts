@@ -27,8 +27,9 @@ export interface Order {
     provider: "kakao" | "naver" | "demo";
   };
   product: {
+    /** 기존 주문 호환용 필드. v1.11부터 단일 상품 구조이며 모든 신규 주문은 "standard"로 저장됨 */
     tier: "mini" | "standard" | "premium";
-    tierName: string;
+    tierName: string;      // 상품명 (v1.11부터 단일 상품명)
     photoCount: number;
     coverColor: string;
     coverHex: string;
@@ -85,16 +86,12 @@ export const STATUS_COLORS: Record<OrderStatus, { bg: string; text: string }> = 
 
 /* ─── 상품/가격 설정 (관리자 편집 대상) ─── */
 
-export type ProductTierKey = "mini" | "standard" | "premium";
-
-export interface ProductTier {
-  key: ProductTierKey;
-  name: string;          // 예: "미니앨범"
-  maxPhotos: number;     // 상한 장수 (예: 40)
-  price: number;         // 판매가 (원, 부가세 포함)
-  description?: string;  // 선택 설명 문구
-  enabled: boolean;      // 판매 노출 여부
-}
+/**
+ * MPA는 단일 상품입니다:
+ *   - 최대 100장까지 담을 수 있는 하드커버 포토앨범
+ *   - 사진 장수에 관계없이 고정 가격
+ *   - 부가세 10% 별도, 배송비 별도
+ */
 
 export interface CoverColor {
   id: string;       // "deepgreen", "yellow" ... (영문 slug)
@@ -105,23 +102,35 @@ export interface CoverColor {
   order: number;    // 정렬 순서 (0부터)
 }
 
+export interface Product {
+  name: string;             // 상품명 (예: "모바일 포토앨범")
+  description?: string;     // 한 줄 설명 (선택)
+  maxPhotos: number;        // 최대 수록 사진 장수 (기본 100)
+  basePrice: number;        // 판매가 (부가세 별도, 원)
+  vatRate: number;          // 부가세율 (기본 0.10 = 10%)
+  enabled: boolean;         // 판매 노출 여부
+}
+
 export interface ProductSettings {
-  tiers: ProductTier[];       // 항상 3개 (mini / standard / premium)
-  colors: CoverColor[];       // 6개 기본, 확장 가능
-  shippingFee: number;        // 배송비 (0이면 무료)
-  freeShippingThreshold: number; // 이 금액 이상이면 무료 (0 = 비활성)
-  giftWrapFee: number;        // 선물 포장 추가 금액
-  updatedAt: string;          // ISO
-  updatedBy?: string;         // 수정한 관리자 식별
+  product: Product;               // 단일 상품
+  colors: CoverColor[];           // 6개 기본, 확장 가능
+  shippingFee: number;            // 배송비 (부가세 포함 금액, 원)
+  freeShippingThreshold: number;  // 이 금액 이상이면 배송비 면제 (0 = 비활성)
+  giftWrapFee: number;            // 선물 포장 추가 금액
+  updatedAt: string;              // ISO
+  updatedBy?: string;             // 수정한 관리자 식별
 }
 
 /* 기본값 (Firestore에 문서가 없을 때 초기 표시용) */
 export const DEFAULT_PRODUCT_SETTINGS: ProductSettings = {
-  tiers: [
-    { key: "mini",     name: "미니앨범",     maxPhotos: 40,  price: 19900, description: "가볍게 즐기는 사이즈",        enabled: true },
-    { key: "standard", name: "스탠다드앨범", maxPhotos: 70,  price: 29900, description: "가장 인기있는 기본 사이즈",  enabled: true },
-    { key: "premium",  name: "프리미엄앨범", maxPhotos: 100, price: 39900, description: "최대 100장, 풍성한 볼륨",    enabled: true },
-  ],
+  product: {
+    name: "모바일 포토앨범",
+    description: "최대 100장 · 하드커버 양장 · 스퀘어 사이즈",
+    maxPhotos: 100,
+    basePrice: 10000,
+    vatRate: 0.10,
+    enabled: true,
+  },
   colors: [
     { id: "deepgreen",  name: "딥그린",     hex: "#1B5E20", light: "#E8F5E9", enabled: true, order: 0 },
     { id: "lightgreen", name: "라이트그린", hex: "#4CAF50", light: "#F1F8E9", enabled: true, order: 1 },
@@ -135,3 +144,34 @@ export const DEFAULT_PRODUCT_SETTINGS: ProductSettings = {
   giftWrapFee: 3000,
   updatedAt: new Date(0).toISOString(),
 };
+
+/* ─── 가격 계산 유틸 ─── */
+
+export interface PriceBreakdown {
+  basePrice: number;     // 상품가 (부가세 별도)
+  vat: number;           // 부가세
+  productTotal: number;  // basePrice + vat
+  shippingFee: number;   // 배송비 (무료 배송 적용 후)
+  giftWrap: number;      // 선물 포장 추가 금액 (옵션 선택 시)
+  grandTotal: number;    // 최종 결제액
+}
+
+export function calculatePrice(
+  settings: ProductSettings,
+  opts: { giftWrap?: boolean } = {}
+): PriceBreakdown {
+  const basePrice = settings.product.basePrice;
+  const vat = Math.round(basePrice * settings.product.vatRate);
+  const productTotal = basePrice + vat;
+
+  // 무료배송 기준이 활성화(>0)이고 상품가(부가세 포함)가 기준 이상이면 배송비 면제
+  const shippingFee =
+    settings.freeShippingThreshold > 0 && productTotal >= settings.freeShippingThreshold
+      ? 0
+      : settings.shippingFee;
+
+  const giftWrap = opts.giftWrap ? settings.giftWrapFee : 0;
+  const grandTotal = productTotal + shippingFee + giftWrap;
+
+  return { basePrice, vat, productTotal, shippingFee, giftWrap, grandTotal };
+}

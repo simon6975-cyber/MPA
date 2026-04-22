@@ -139,7 +139,7 @@ storage.rules                      # Storage 보안 규칙
 .env.local                         # 환경 변수 (로컬용, gitignore됨)
 ```
 
-## 🎯 다음 단계
+## 🎯 다음 단계.
 
 - [ ] 실제 카카오/네이버 OAuth 연동 (Firebase Auth OAuthProvider)
 - [ ] PG사 결제 연동 (이니시스 / 카카오페이)

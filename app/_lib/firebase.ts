@@ -64,3 +64,56 @@ export function getFirebaseAuth(): Auth {
 export function isFirebaseConfigured(): boolean {
   return !!(process.env.NEXT_PUBLIC_FIREBASE_API_KEY && process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
 }
+
+/* ─── 썸네일 URL 유틸 (Firebase Resize Images Extension 연동) ─── */
+
+/**
+ * Firebase Resize Images Extension이 생성한 썸네일 URL을 반환합니다.
+ *
+ * Extension 설정 가정:
+ *   - Sizes of resized images: "200x200,400x400"
+ *   - Cloud Storage path for resized images: "thumbnails"
+ *   - Convert image to preferred type: "webp"
+ *
+ * 변환 규칙:
+ *   원본 storagePath: "photos/abc123.jpg"
+ *   썸네일 storagePath: "thumbnails/photos/abc123_200x200.webp"
+ *
+ * URL은 Firebase Storage 다운로드 URL 형식을 따르며, 토큰 파라미터는 제거됩니다
+ * (썸네일은 별도 객체이므로 자체 토큰을 가짐).
+ *
+ * 어드민 환경에서는 storage.rules에서 thumbnails/ 경로 읽기 권한을 허용해야 합니다.
+ *
+ * @param originalUrl 원본 사진의 다운로드 URL (Firebase Storage)
+ * @param size 썸네일 크기 ("200x200" 또는 "400x400")
+ * @returns 썸네일 URL. 변환 실패 시 원본 URL 반환 (안전한 fallback)
+ */
+export function getThumbnailUrl(originalUrl: string, size: "200x200" | "400x400" = "200x200"): string {
+  try {
+    const url = new URL(originalUrl);
+
+    // Firebase Storage URL 형식:
+    //   https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encodedPath}?alt=media&token=...
+    // pathname에서 "/o/" 뒤의 인코딩된 경로를 추출
+    const match = url.pathname.match(/\/o\/(.+)$/);
+    if (!match) return originalUrl;
+
+    const encodedPath = match[1];
+    const decodedPath = decodeURIComponent(encodedPath);
+
+    // 확장자 분리: "photos/abc123.jpg" → ["photos/abc123", "jpg"]
+    const lastDot = decodedPath.lastIndexOf(".");
+    if (lastDot === -1) return originalUrl;
+
+    const pathWithoutExt = decodedPath.substring(0, lastDot);
+
+    // 썸네일 경로 생성: "thumbnails/photos/abc123_200x200.webp"
+    const thumbPath = `thumbnails/${pathWithoutExt}_${size}.webp`;
+    const encodedThumbPath = encodeURIComponent(thumbPath);
+
+    // 토큰은 제거하고 alt=media만 유지 (썸네일은 자체 토큰을 가짐)
+    return `${url.origin}${url.pathname.replace(/\/o\/.+$/, `/o/${encodedThumbPath}`)}?alt=media`;
+  } catch {
+    return originalUrl; // URL 파싱 실패 시 원본 URL 반환
+  }
+}

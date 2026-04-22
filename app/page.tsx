@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import Link from "next/link";
 import { createOrder, OrderCreationProgress } from "./_lib/orderService";
 import { isFirebaseConfigured } from "./_lib/firebase";
 import { subscribeToProductSettings } from "./_lib/productService";
-import type { ProductSettings } from "./_lib/types";
+import { subscribeNotices } from "./_lib/noticeService";
+import type { ProductSettings, Notice } from "./_lib/types";
 import { DEFAULT_PRODUCT_SETTINGS } from "./_lib/types";
 
 /* ─── 타입 ─── */
@@ -242,6 +244,13 @@ function SplashScreen({ onDone }: { onDone: () => void }) {
 /* ─── 홈 ─── */
 
 function HomeScreen({ onStart }: { onStart: () => void }) {
+  // 공지사항 최신 3건 구독
+  const [recentNotices, setRecentNotices] = useState<Notice[]>([]);
+  useEffect(() => {
+    const unsub = subscribeNotices((list) => setRecentNotices(list.slice(0, 3)));
+    return () => unsub();
+  }, []);
+
   return (
     <div style={{ height: "100%", background: "#fafaf8", display: "flex", flexDirection: "column" }}>
       <StatusBar />
@@ -290,19 +299,90 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
         <p style={{ fontSize: 12, color: "#bbb", marginTop: 12, textAlign: "center", lineHeight: 1.5 }}>
           사진을 많이 선택할수록 좋아요 (최대 100장)<br />선택한 사진은 이후 화면에서 조정할 수 있어요
         </p>
-        <div style={{ marginTop: 20, padding: 16, background: "#f0eeeb", borderRadius: 12 }}>
-          <p style={{ fontSize: 12, color: "#999", margin: 0 }}>최근 주문</p>
-          <p style={{ fontSize: 15, color: "#444", margin: "6px 0 0", fontWeight: 500 }}>2026 봄 여행 앨범</p>
-          <p style={{ fontSize: 13, color: "#4CAF50", margin: "4px 0 0" }}>배송 완료</p>
+
+        {/* 공지사항 섹션 */}
+        {recentNotices.length > 0 && (
+          <div style={{ marginTop: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#1a1a1a" }}>📢 공지사항</h3>
+              <Link href="/notices" style={{ fontSize: 12, color: "#888", textDecoration: "none" }}>
+                전체보기 →
+              </Link>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {recentNotices.map((n) => (
+                <Link
+                  key={n.id}
+                  href="/notices"
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "12px 14px", background: "#fff", borderRadius: 10,
+                    boxShadow: "0 1px 6px rgba(0,0,0,0.04)",
+                    textDecoration: "none", color: "inherit",
+                  }}
+                >
+                  {n.pinned && (
+                    <span style={{
+                      fontSize: 9, padding: "2px 6px", background: "#fff2e6", color: "#E65100",
+                      borderRadius: 8, fontWeight: 700, flexShrink: 0,
+                    }}>📌</span>
+                  )}
+                  <span style={{
+                    flex: 1, fontSize: 13, color: "#333",
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                  }}>{n.title}</span>
+                  <span style={{ fontSize: 11, color: "#bbb", flexShrink: 0 }}>
+                    {new Date(n.createdAt).getMonth() + 1}.{new Date(n.createdAt).getDate()}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 빠른 메뉴 */}
+        <div style={{ marginTop: 24, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Link href="/faq" style={{
+            padding: "16px", background: "#fff", borderRadius: 12,
+            boxShadow: "0 1px 6px rgba(0,0,0,0.04)", textDecoration: "none",
+            display: "flex", flexDirection: "column", gap: 4,
+          }}>
+            <span style={{ fontSize: 20 }}>❓</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a" }}>자주 묻는 질문</span>
+            <span style={{ fontSize: 11, color: "#999" }}>궁금증 해결</span>
+          </Link>
+          <Link href="/mypage" style={{
+            padding: "16px", background: "#fff", borderRadius: 12,
+            boxShadow: "0 1px 6px rgba(0,0,0,0.04)", textDecoration: "none",
+            display: "flex", flexDirection: "column", gap: 4,
+          }}>
+            <span style={{ fontSize: 20 }}>👤</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1a1a1a" }}>마이페이지</span>
+            <span style={{ fontSize: 11, color: "#999" }}>주문 · 문의</span>
+          </Link>
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "space-around", padding: "14px 0", paddingBottom: "calc(14px + env(safe-area-inset-bottom, 16px))", borderTop: "1px solid #eee", flexShrink: 0 }}>
-        {["홈", "주문내역", "설정"].map((t, i) => (
-          <span key={t} style={{ fontSize: 12, color: i === 0 ? "#1a1a1a" : "#ccc", fontWeight: i === 0 ? 600 : 400 }}>{t}</span>
-        ))}
+
+      {/* 하단 네비 */}
+      <div style={{ display: "flex", justifyContent: "space-around", padding: "14px 0", paddingBottom: "calc(14px + env(safe-area-inset-bottom, 16px))", borderTop: "1px solid #eee", flexShrink: 0, background: "#fff" }}>
+        <BottomNavItem label="홈" icon="🏠" active />
+        <BottomNavItem label="주문내역" icon="📦" href="/mypage" />
+        <BottomNavItem label="문의" icon="💬" href="/mypage?tab=inquiries" />
+        <BottomNavItem label="FAQ" icon="❓" href="/faq" />
       </div>
     </div>
   );
+}
+
+function BottomNavItem({ label, icon, active, href }: { label: string; icon: string; active?: boolean; href?: string }) {
+  const content = (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+      <span style={{ fontSize: 18, opacity: active ? 1 : 0.45 }}>{icon}</span>
+      <span style={{ fontSize: 10, color: active ? "#1a1a1a" : "#aaa", fontWeight: active ? 600 : 400 }}>{label}</span>
+    </div>
+  );
+  if (active || !href) return content;
+  return <Link href={href} style={{ textDecoration: "none" }}>{content}</Link>;
 }
 
 /* ─── 사진 선택 (실제 사진 보관함) ─── */

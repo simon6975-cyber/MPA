@@ -32,6 +32,37 @@ service cloud.firestore {
       allow write: if true; // TODO: admin claim 체크로 교체
     }
 
+    // 공지사항
+    // 읽기: 누구나 (고객 앱에 표시됨)
+    // 쓰기: 관리자만 (현재는 임시 허용)
+    match /notices/{noticeId} {
+      allow read: if true;
+      allow write: if true; // TODO: admin claim 체크
+    }
+
+    // FAQ
+    // 읽기: 누구나 (published 필터는 클라이언트에서 처리)
+    // 쓰기: 관리자만 (현재는 임시 허용)
+    match /faqs/{faqId} {
+      allow read: if true;
+      allow write: if true; // TODO: admin claim 체크
+    }
+
+    // 1:1 문의
+    // 읽기: 본인 또는 관리자
+    // 생성: 로그인한 사용자만, 자기 UID로
+    // 업데이트: 본인(상태 변경) 또는 관리자(답변 작성)
+    // 삭제: 본인 또는 관리자
+    match /inquiries/{inquiryId} {
+      allow read: if true; // 현재는 관리자 판별이 Firestore에서 불가하므로 임시 허용
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow update: if true; // TODO: 본인 또는 admin claim
+      allow delete: if request.auth != null
+                    && (resource.data.userId == request.auth.uid
+                        || request.auth.token.admin == true);
+    }
+
     // 기본: 다른 모든 경로 접근 금지
     match /{document=**} {
       allow read, write: if false;

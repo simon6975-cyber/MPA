@@ -30,6 +30,18 @@ service firebase.storage {
       allow write: if false;  // Extension(Cloud Functions)만 쓸 수 있음
     }
 
+    // 1:1 문의 첨부 이미지
+    // 경로: inquiries/{userId}/{inquiryId}/{filename}
+    match /inquiries/{userId}/{inquiryId}/{filename} {
+      // 읽기: 인증된 사용자 (본인 및 관리자 모두 확인해야 하나 현재는 임시로 전체 허용)
+      allow read: if request.auth != null;
+      // 쓰기: 본인만 자기 경로에 업로드
+      allow write: if request.auth != null
+                   && request.auth.uid == userId
+                   && request.resource.size < 5 * 1024 * 1024  // 5MB 제한
+                   && request.resource.contentType.matches('image/.*');
+    }
+
     // 기타 경로 금지
     match /{allPaths=**} {
       allow read, write: if false;

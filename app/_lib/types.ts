@@ -66,6 +66,73 @@ export interface Member {
   totalSpent: number;
 }
 
+/* ─── 공지사항 (Notice) ─── */
+
+export interface Notice {
+  id: string;              // Firestore 문서 ID
+  title: string;
+  content: string;         // 본문 (일반 텍스트, 줄바꿈 유지)
+  pinned: boolean;         // 상단 고정 여부
+  createdAt: string;       // ISO string
+  updatedAt: string;       // ISO string
+  authorName?: string;     // 작성한 관리자 이름 (표시용)
+}
+
+/* ─── FAQ ─── */
+
+export interface Faq {
+  id: string;              // Firestore 문서 ID
+  question: string;
+  answer: string;          // 답변 (일반 텍스트, 줄바꿈 유지)
+  order: number;           // 표시 순서 (낮을수록 위에)
+  published: boolean;      // 공개 여부 (비공개는 고객에게 미노출)
+  createdAt: string;       // ISO string
+  updatedAt: string;       // ISO string
+}
+
+/* ─── 1:1 문의 (Inquiry) ─── */
+
+export type InquiryStatus = "pending" | "answered" | "closed";
+
+export interface InquiryImage {
+  url: string;             // Storage 다운로드 URL
+  storagePath: string;     // Storage 경로 (삭제 시 필요)
+  filename: string;
+}
+
+export interface Inquiry {
+  id: string;              // Firestore 문서 ID
+  userId: string;          // 작성자 UID
+  customer: {
+    name: string;
+    email: string;
+    phone: string;
+  };
+  title: string;
+  content: string;         // 문의 내용
+  images: InquiryImage[];  // 첨부 이미지 (최대 5장)
+  status: InquiryStatus;
+  createdAt: string;
+  answer?: {
+    content: string;
+    answeredAt: string;
+    answeredBy?: string;   // 답변한 관리자 이름
+  };
+  orderNumber?: string;    // 관련 주문 번호 (선택)
+}
+
+export const INQUIRY_STATUS_LABELS: Record<InquiryStatus, string> = {
+  pending: "답변 대기",
+  answered: "답변 완료",
+  closed: "종료",
+};
+
+export const INQUIRY_STATUS_COLORS: Record<InquiryStatus, { bg: string; text: string }> = {
+  pending: { bg: "#FFF3E0", text: "#E65100" },
+  answered: { bg: "#E8F5E9", text: "#2E7D32" },
+  closed: { bg: "#FAFAFA", text: "#888" },
+};
+
 /* ─── 상태 표시용 상수 ─── */
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {

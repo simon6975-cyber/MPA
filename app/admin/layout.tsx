@@ -56,6 +56,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: "/admin", label: "주문 관리", icon: "📦" },
     { href: "/admin/members", label: "회원 관리", icon: "👥" },
     { href: "/admin/products", label: "상품 관리", icon: "🎨" },
+    { href: "/admin/notices", label: "공지사항", icon: "📢" },
+    { href: "/admin/faqs", label: "FAQ 관리", icon: "❓" },
+    { href: "/admin/inquiries", label: "1:1 문의", icon: "💬" },
     { href: "/admin/stats", label: "매출 대시보드", icon: "📊" },
   ];
 

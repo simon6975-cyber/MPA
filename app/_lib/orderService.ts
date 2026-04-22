@@ -12,6 +12,12 @@ import {
   setDoc,
   serverTimestamp,
   Timestamp,
+  getDocs,
+  getDoc,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
 } from "firebase/firestore";
 import {
   ref,
@@ -19,7 +25,7 @@ import {
   getDownloadURL,
   UploadResult,
 } from "firebase/storage";
-import { signInAnonymously } from "firebase/auth";
+import { signInAnonymously, onAuthStateChanged, User } from "firebase/auth";
 import { getDb, getFirebaseStorage, getFirebaseAuth } from "./firebase";
 import type { Order, OrderPhoto, OrderStatus } from "./types";
 
@@ -67,13 +73,65 @@ function generateOrderNumber(): string {
 }
 
 /**
- * 익명 인증 보장 (이미 로그인되어 있으면 skip)
+ * 익명 인증 보장 (이미 로그인되어 있으면 skip). 외부에서도 사용 가능하도록 export.
  */
-async function ensureAuth(): Promise<string> {
+export async function ensureAuth(): Promise<string> {
   const auth = getFirebaseAuth();
   if (auth.currentUser) return auth.currentUser.uid;
   const cred = await signInAnonymously(auth);
   return cred.user.uid;
+}
+
+/**
+ * 현재 로그인 사용자를 구독 (익명 포함). 없으면 null.
+ * 마이페이지에서 "아직 주문 이력이 없는 신규 방문자"를 판별할 때 사용.
+ */
+export function subscribeCurrentUser(cb: (user: User | null) => void): () => void {
+  const auth = getFirebaseAuth();
+  return onAuthStateChanged(auth, cb);
+}
+
+/**
+ * 특정 userId의 주문 목록 조회 (최신순).
+ */
+export async function fetchOrdersByUserId(userId: string): Promise<Order[]> {
+  const db = getDb();
+  const q = query(
+    collection(db, "orders"),
+    where("userId", "==", userId),
+    orderBy("createdAt", "desc"),
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }) as Order);
+}
+
+/**
+ * 특정 userId의 주문 실시간 구독.
+ */
+export function subscribeOrdersByUserId(
+  userId: string,
+  cb: (orders: Order[]) => void,
+): () => void {
+  const db = getDb();
+  const q = query(
+    collection(db, "orders"),
+    where("userId", "==", userId),
+    orderBy("createdAt", "desc"),
+  );
+  return onSnapshot(q, (snap) => {
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Order);
+    cb(list);
+  });
+}
+
+/**
+ * 주문 단건 조회 (고객용).
+ */
+export async function fetchOrderByIdForCustomer(orderId: string): Promise<Order | null> {
+  const db = getDb();
+  const snap = await getDoc(doc(db, "orders", orderId));
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...snap.data() } as Order;
 }
 
 /**

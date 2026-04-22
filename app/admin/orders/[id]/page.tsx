@@ -6,7 +6,6 @@ import { useParams } from "next/navigation";
 import { fetchOrderById, updateOrderStatus, markPdfGenerated } from "../../../_lib/adminOrderService";
 import { STATUS_LABELS, STATUS_COLORS, Order, OrderStatus } from "../../../_lib/types";
 import { generateOrderPdfSafe, downloadPdf, LAYOUT, PdfGenerationProgress } from "../../../_lib/pdfGenerator";
-import { getThumbnailUrl } from "../../../_lib/firebase";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -93,14 +92,6 @@ export default function AdminOrderDetailPage() {
       await new Promise(r => setTimeout(r, 200)); // 브라우저가 처리할 시간
     }
     setDownloadingAll(false);
-  };
-
-  const handleDownloadSingle = (photoUrl: string, filename: string) => {
-    const a = document.createElement("a");
-    a.href = photoUrl;
-    a.download = filename;
-    a.target = "_blank";
-    a.click();
   };
 
   const handleGeneratePdf = async () => {
@@ -274,73 +265,42 @@ export default function AdminOrderDetailPage() {
         </div>
       </div>
 
-      {/* 사진 원본 - 옵션 C: 요약 카드 + 펼치기 + 점진적 렌더링 */}
+      {/* 사진 원본 - 요약 정보 + 다운로드만 (썸네일 미리보기 제거, PDF에서 확인 가능) */}
       <PhotosSection
         photos={order.photos}
         onDownloadAll={handleDownloadAll}
-        onDownloadSingle={handleDownloadSingle}
         downloadingAll={downloadingAll}
       />
     </div>
   );
 }
 
-/* ─── 사진 섹션 (성능 최적화용 하위 컴포넌트) ─── */
+/* ─── 사진 섹션 ─── */
 
 interface PhotosSectionProps {
   photos: Order["photos"];
   onDownloadAll: () => void;
-  onDownloadSingle: (url: string, filename: string) => void;
   downloadingAll: boolean;
 }
 
 /**
- * 성능 최적화 전략:
- * 1. 기본값은 "접힘" 상태 - 요약 카드만 표시하여 페이지 초기 렌더링 부담 0
- * 2. 펼치면 점진적 렌더링 - 처음에 PAGE_SIZE(20)장만 렌더링하고, 스크롤 또는 "더 보기" 버튼으로 추가 로딩
- * 3. img에 loading="lazy" + 썸네일 URL 사용으로 네트워크 부담도 최소화
+ * 사진 파일 정보 표시 + 전체 다운로드 버튼.
  *
- * 100장 주문 기준:
- *   - 접힘 상태: DOM 요소 수 거의 0 → 페이지 전체가 가벼움
- *   - 펼침 상태 초기: 20장만 렌더링 → 스크롤 부드러움
- *   - 필요 시 모두 로딩: 25장씩 점진 추가
+ * 썸네일 미리보기는 제공하지 않습니다. 이유:
+ *   - 100장 썸네일 렌더링은 DOM 요소 과다로 페이지 성능 저하
+ *   - 사진 내용 확인은 "PDF 생성 및 다운로드"로 충분함 (페이지별 4장 배치로 한눈에 확인 가능)
+ *   - 개별 원본은 "전체 다운로드"로 받아서 로컬에서 확인
  */
-function PhotosSection({ photos, onDownloadAll, onDownloadSingle, downloadingAll }: PhotosSectionProps) {
-  const PAGE_SIZE = 25;
-  const [expanded, setExpanded] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
-
+function PhotosSection({ photos, onDownloadAll, downloadingAll }: PhotosSectionProps) {
   // 파일 크기 합계 (MB 단위)
   const totalSizeMb = React.useMemo(() => {
     const bytes = photos.reduce((sum, p) => sum + (p.size || 0), 0);
     return (bytes / (1024 * 1024)).toFixed(1);
   }, [photos]);
 
-  // 펼치기 토글 시 visibleCount 리셋
-  const handleToggleExpand = () => {
-    if (expanded) {
-      setExpanded(false);
-      setVisibleCount(PAGE_SIZE); // 다음 펼침을 대비해 리셋
-    } else {
-      setExpanded(true);
-    }
-  };
-
-  const handleLoadMore = () => {
-    setVisibleCount((c) => Math.min(c + PAGE_SIZE, photos.length));
-  };
-
-  const handleLoadAll = () => {
-    setVisibleCount(photos.length);
-  };
-
-  const hasMore = visibleCount < photos.length;
-  const visiblePhotos = expanded ? photos.slice(0, visibleCount) : [];
-
   return (
     <div style={{ background: "#fff", borderRadius: 10, padding: 20, border: "1px solid #e8eaed" }}>
-      {/* 헤더 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: expanded ? 16 : 0, flexWrap: "wrap", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{
             width: 44, height: 44, borderRadius: 10, background: "#f0f2f5",
@@ -351,90 +311,19 @@ function PhotosSection({ photos, onDownloadAll, onDownloadSingle, downloadingAll
               제작용 사진 {photos.length}장
             </h3>
             <p style={{ margin: "3px 0 0", fontSize: 11, color: "#888" }}>
-              총 {totalSizeMb}MB · 원본 이미지 Firebase Storage 저장
+              총 {totalSizeMb}MB · Firebase Storage에 원본 저장 · 사진 내용은 상단 PDF에서 확인
             </p>
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button onClick={handleToggleExpand} style={{
-            padding: "9px 14px", background: expanded ? "#fff" : "#f5f6f8", color: "#1a1a1a",
-            border: "1px solid #ddd", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
-            display: "flex", alignItems: "center", gap: 4,
-          }}>
-            {expanded ? "▲ 접기" : "▼ 펼쳐보기"}
-          </button>
-          <button onClick={onDownloadAll} disabled={downloadingAll} style={{
-            padding: "9px 16px", background: downloadingAll ? "#ccc" : "#1a1a1a", color: "#fff", border: "none", borderRadius: 8,
-            fontSize: 13, fontWeight: 600, cursor: downloadingAll ? "default" : "pointer",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
-            {downloadingAll ? "⏳ 다운로드 중..." : "⬇ 전체 다운로드"}
-          </button>
-        </div>
+        <button onClick={onDownloadAll} disabled={downloadingAll} style={{
+          padding: "9px 16px", background: downloadingAll ? "#ccc" : "#1a1a1a", color: "#fff", border: "none", borderRadius: 8,
+          fontSize: 13, fontWeight: 600, cursor: downloadingAll ? "default" : "pointer",
+          display: "flex", alignItems: "center", gap: 6,
+        }}>
+          {downloadingAll ? "⏳ 다운로드 중..." : "⬇ 원본 전체 다운로드"}
+        </button>
       </div>
-
-      {/* 펼침 상태에서만 썸네일 그리드 표시 */}
-      {expanded && (
-        <>
-          <p style={{ margin: "0 0 12px", fontSize: 11, color: "#888" }}>
-            클릭하면 Firebase Storage에서 원본 다운로드 · {visibleCount}/{photos.length}장 표시 중
-          </p>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, padding: 4 }}>
-            {visiblePhotos.map((p, i) => (
-              <div key={p.id} onClick={() => onDownloadSingle(p.url, p.filename)} style={{
-                position: "relative", paddingBottom: "100%", cursor: "pointer", borderRadius: 6, overflow: "hidden",
-                background: "#f5f6f8", transition: "transform 0.15s",
-              }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.03)"}
-              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-              title={`${p.filename} - 클릭하여 다운로드`}>
-                <img
-                  src={getThumbnailUrl(p.url, "200x200")}
-                  alt={p.filename}
-                  loading="lazy"
-                  decoding="async"
-                  onError={(e) => {
-                    // 썸네일이 아직 생성되지 않았거나 Extension 미설치 시 원본으로 fallback
-                    const img = e.currentTarget;
-                    if (img.src !== p.url) img.src = p.url;
-                  }}
-                  style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
-                />
-                <div style={{ position: "absolute", top: 4, left: 4, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>
-                  {i + 1}
-                </div>
-                <div style={{
-                  position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, rgba(0,0,0,0.7))",
-                  color: "#fff", fontSize: 9, padding: "14px 6px 5px", fontFamily: "monospace",
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                }}>
-                  {p.filename}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 점진적 로딩 버튼 */}
-          {hasMore && (
-            <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16, paddingTop: 16, borderTop: "1px solid #f0f0f0" }}>
-              <button onClick={handleLoadMore} style={{
-                padding: "10px 20px", background: "#f5f6f8", color: "#1a1a1a",
-                border: "1px solid #ddd", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
-              }}>
-                + {Math.min(PAGE_SIZE, photos.length - visibleCount)}장 더 보기
-              </button>
-              <button onClick={handleLoadAll} style={{
-                padding: "10px 20px", background: "#1a1a1a", color: "#fff",
-                border: "none", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: "pointer",
-              }}>
-                전체 {photos.length}장 모두 보기
-              </button>
-            </div>
-          )}
-        </>
-      )}
     </div>
   );
 }

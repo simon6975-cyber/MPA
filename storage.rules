@@ -22,6 +22,14 @@ service firebase.storage {
       allow write: if false;  // Cloud Functions만 쓸 수 있음 (Admin SDK 사용)
     }
 
+    // 썸네일 (Firebase Resize Images Extension이 생성)
+    // 원본: orders/{uid}/{orderId}/photos/{file}.jpg
+    // 썸네일: thumbnails/orders/{uid}/{orderId}/photos/{file}_200x200.webp
+    match /thumbnails/{allPaths=**} {
+      allow read: if request.auth != null;
+      allow write: if false;  // Extension(Cloud Functions)만 쓸 수 있음
+    }
+
     // 기타 경로 금지
     match /{allPaths=**} {
       allow read, write: if false;

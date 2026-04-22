@@ -6,6 +6,7 @@ import { useParams } from "next/navigation";
 import { fetchOrderById, updateOrderStatus, markPdfGenerated } from "../../../_lib/adminOrderService";
 import { STATUS_LABELS, STATUS_COLORS, Order, OrderStatus } from "../../../_lib/types";
 import { generateOrderPdfSafe, downloadPdf, LAYOUT, PdfGenerationProgress } from "../../../_lib/pdfGenerator";
+import { getThumbnailUrl } from "../../../_lib/firebase";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -298,7 +299,18 @@ export default function AdminOrderDetailPage() {
             onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.03)"}
             onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
             title={`${p.filename} - 클릭하여 다운로드`}>
-              <img src={p.url} alt={p.filename} loading="lazy" style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }} />
+              <img
+                src={getThumbnailUrl(p.url, "200x200")}
+                alt={p.filename}
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  // 썸네일이 아직 생성되지 않았거나 Extension 미설치 시 원본으로 fallback
+                  const img = e.currentTarget;
+                  if (img.src !== p.url) img.src = p.url;
+                }}
+                style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", objectFit: "cover" }}
+              />
               <div style={{ position: "absolute", top: 4, left: 4, background: "rgba(0,0,0,0.6)", color: "#fff", fontSize: 10, padding: "1px 6px", borderRadius: 3, fontWeight: 600 }}>
                 {i + 1}
               </div>

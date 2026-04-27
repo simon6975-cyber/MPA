@@ -99,7 +99,7 @@ function useProductSettingsSync() {
   }, []);
 }
 
-const APP_VERSION = "v1.11 · Firebase";
+const APP_VERSION = "v2.1 · Firebase";
 
 /* ─── 사용자 세션 (간편 로그인) ─── */
 interface UserSession {
@@ -366,9 +366,9 @@ function HomeScreen({ onStart }: { onStart: () => void }) {
       {/* 하단 네비 */}
       <div style={{ display: "flex", justifyContent: "space-around", padding: "14px 0", paddingBottom: "calc(14px + env(safe-area-inset-bottom, 16px))", borderTop: "1px solid #eee", flexShrink: 0, background: "#fff" }}>
         <BottomNavItem label="홈" icon="🏠" active />
-        <BottomNavItem label="주문내역" icon="📦" href="/mypage" />
-        <BottomNavItem label="문의" icon="💬" href="/mypage?tab=inquiries" />
+        <BottomNavItem label="마이페이지" icon="👤" href="/mypage" />
         <BottomNavItem label="FAQ" icon="❓" href="/faq" />
+        <BottomNavItem label="공지사항" icon="📢" href="/notices" />
       </div>
     </div>
   );

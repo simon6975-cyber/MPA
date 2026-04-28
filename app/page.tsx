@@ -99,7 +99,7 @@ function useProductSettingsSync() {
   }, []);
 }
 
-const APP_VERSION = "v2.1 · Firebase";
+const APP_VERSION = "v2.2 · Firebase";
 
 /* ─── 사용자 세션 (간편 로그인) ─── */
 interface UserSession {
@@ -1455,7 +1455,29 @@ type Screen = "splash" | "home" | "gallery" | "arrange" | "cover" | "login" | "o
 export default function Page() {
   useProductSettingsSync(); // Firestore 상품 설정 실시간 구독 (관리자가 값 바꾸면 여기도 즉시 반영)
 
+  // 화면 상태 관리:
+  //   - 처음 앱을 열 때(또는 새 브라우저 세션): 검정 스플래시 1.8초 표시
+  //   - 마이페이지/FAQ/공지사항 등 다른 라우트에서 뒤로가기로 돌아왔을 때: home 화면 즉시 표시
+  //
+  // 구현 메모:
+  //   sessionStorage는 클라이언트에서만 접근 가능하므로 SSR/하이드레이션 시점에는 결정할 수 없음.
+  //   따라서 mounted 플래그를 두어 hydration 완료 전에는 중립적인 흰 배경만 그리고,
+  //   클라이언트 마운트 직후에 sessionStorage를 확인해 splash/home 중 어느 화면으로 시작할지 결정.
+  //   (SSR이 splash를 그리고 클라이언트에서 뒤로가기 후 즉시 home으로 바뀌어 검은 화면이 깜빡이는 문제를 차단)
+  const [mounted, setMounted] = useState(false);
   const [screen, setScreen] = useState<Screen>("splash");
+
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined" && window.sessionStorage.getItem("mpa_splash_shown") === "1") {
+        setScreen("home");
+      }
+    } catch {
+      // sessionStorage 접근 실패(프라이빗 모드 등) 시에는 정상적으로 스플래시 표시
+    }
+    setMounted(true);
+  }, []);
+
   const [allPhotos, setAllPhotos] = useState<PhotoItem[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [colorIdx, setColorIdx] = useState(0);
@@ -1594,7 +1616,22 @@ export default function Page() {
       {loading && <LoadingOverlay message={loadingMsg} />}
 
       <div style={{ width: "100%", height: "100%", opacity: transitioning ? 0 : 1, transition: "opacity 0.15s ease" }}>
-        {screen === "splash" && <SplashScreen onDone={() => setScreen("home")} />}
+        {/* mounted 전에는 중립적인 베이지 배경만 표시 (검은 스플래시가 잠깐 깜빡이는 문제 방지) */}
+        {mounted && screen === "splash" && (
+          <SplashScreen
+            onDone={() => {
+              // 동일 세션 내 재방문 시 스플래시 건너뛰기 위한 플래그 저장
+              try {
+                if (typeof window !== "undefined") {
+                  window.sessionStorage.setItem("mpa_splash_shown", "1");
+                }
+              } catch {
+                // sessionStorage 접근 실패는 무시 (다음 마운트에서 스플래시 한 번 더 보여도 무방)
+              }
+              setScreen("home");
+            }}
+          />
+        )}
         {screen === "home" && <HomeScreen onStart={handleStartAlbum} />}
         {screen === "gallery" && (
           <GalleryScreen
